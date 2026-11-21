@@ -33,6 +33,7 @@ const PROVIDER_FILES: Readonly<Record<string, readonly string[]>> = {
   "opencode-zen.ts": ["opencode"],
   "openrouter.ts": ["openrouter"],
   "quota-providers.ts": ["quota-providers"],
+  "junie.ts": ["jetbrains"],
   "xai.ts": ["xai"],
 };
 /** Provider files of shared helpers: their keys count for the providers that call them. */

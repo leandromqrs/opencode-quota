@@ -11,6 +11,7 @@ const EXPECTED_PROVIDER_ORDER = [
   "cursor",
   "alibaba-coding-plan",
   "alibaba-token-plan",
+  "jetbrains",
   "google-gemini-cli",
   "google-agy",
   "zai",

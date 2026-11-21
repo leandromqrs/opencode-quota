@@ -17,6 +17,7 @@ import { zaiProvider, zhipuProvider } from "./glm-coding-plan.js";
 import { googleAgyProvider } from "./google-agy.js";
 import { googleGeminiCliProvider } from "./google-gemini-cli.js";
 import { kimiCodePlanCnProvider, kimiCodePlanGlobalProvider } from "./kimi-code.js";
+import { junieProvider } from "./junie.js";
 import { xiaomiProvider } from "./mimo.js";
 import {
   minimaxChinaCodingPlanProvider,
@@ -39,6 +40,7 @@ const PROVIDERS_BY_ID = {
   "alibaba-coding-plan": alibabaCodingPlanProvider,
   "alibaba-token-plan": alibabaTokenPlanProvider,
   "google-gemini-cli": googleGeminiCliProvider,
+  jetbrains: junieProvider,
   "google-agy": googleAgyProvider,
   zai: zaiProvider,
   zhipu: zhipuProvider,

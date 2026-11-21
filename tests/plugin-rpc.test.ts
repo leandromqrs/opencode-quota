@@ -175,6 +175,56 @@ describe("server quota RPC", () => {
     expect(existsSync(SNAPSHOT_FILE)).toBe(false);
   });
 
+  it("reads an uncached Junie value row and clears it on empty or failed RPC results", async () => {
+    const { junieProvider } = await import("../src/providers/junie.js");
+    const { JunieQuotaRpc } = await import("../src/lib/junie-quota-rpc.js");
+    mocks.getProviders.mockReturnValue([junieProvider]);
+    useSettings({ providers: { off: CONFIG_PROVIDER_IDS.filter((id) => id !== "jetbrains") } });
+    const junieQuota = vi
+      .fn()
+      .mockResolvedValueOnce({
+        label: "Junie by Jetbrains",
+        groups: [{ title: "Balance", value: "0.00 credits" }],
+      })
+      .mockResolvedValueOnce({ label: "Junie by Jetbrains", groups: [] })
+      .mockResolvedValueOnce({
+        label: "Junie by Jetbrains",
+        groups: [{ title: "Balance", value: "12.34 USD" }],
+      })
+      .mockRejectedValueOnce(new Error("RPC unavailable"))
+      .mockResolvedValueOnce({
+        label: "Junie by Jetbrains",
+        groups: [{ title: "Balance", value: "75% remaining" }],
+      });
+    const { ctx, call, cleanup } = await setupServer({ openCodeProviders: ["jetbrains"], junieQuota });
+    expect(junieQuota).not.toHaveBeenCalled();
+    const refresh = async () => {
+      const result = (await call("refresh", {
+        reason: "manual",
+        providerIds: ["jetbrains"],
+      })) as { snapshot: QuotaSnapshot };
+      return result.snapshot.providers.find((provider) => provider.providerId === "jetbrains")?.rows;
+    };
+    expect(await refresh()).toEqual([
+      expect.objectContaining({
+        id: "jetbrains.balance",
+        type: "balance",
+        amount: { decimal: "0.00", unit: { kind: "count", unit: "credit" } },
+      }),
+    ]);
+    expect(ctx.rpc).toHaveBeenCalledWith(JunieQuotaRpc);
+    expect(await refresh()).toEqual([]);
+    expect(await refresh()).toEqual([
+      expect.objectContaining({
+        amount: { decimal: "12.34", unit: { kind: "currency", code: "USD" } },
+      }),
+    ]);
+    expect(await refresh()).toEqual([]);
+    expect(await refresh()).toEqual([]);
+    await cleanup?.();
+    expect(await readFile(SNAPSHOT_FILE, "utf8").catch(() => "")).not.toContain("jetbrains.balance");
+  });
+
   // The clock is pinned on both sides of local midnight: the two messages came 60 s and 30 s
   // before it, so after midnight they are yesterday's.
   it.each([

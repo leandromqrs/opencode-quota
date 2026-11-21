@@ -50,6 +50,7 @@ import {
 } from "./lib/quota-report-message.js";
 import { resolveQuotaResetRetryDelayMs } from "./lib/quota-retry-wait.js";
 import type { StatusOrigin } from "./lib/quota-status.js";
+import { JunieQuotaRpc } from "./lib/junie-quota-rpc.js";
 import { QuotaRpc } from "./rpc.js";
 import {
   clientSettings,
@@ -115,6 +116,7 @@ export function createQuotaServerPlugin(
     async setup(ctx) {
       const locationDirectory = ctx.location.directory;
       const projectDir = findGitWorktreeRoot(locationDirectory) ?? locationDirectory;
+      const nativeQuotaLifetime = new AbortController();
       // The providers ask OpenCode which providers it has through this small client.
       const client = {
         config: {
@@ -174,6 +176,11 @@ export function createQuotaServerPlugin(
       const sourceHost: ProviderSourceHost = {
         client,
         workspaceRoot: projectDir,
+        readJunieQuota: (signal) =>
+          ctx.rpc(JunieQuotaRpc).status(
+            {},
+            { signal: AbortSignal.any([signal, nativeQuotaLifetime.signal]) },
+          ),
         locationDirectory,
         settings: liveSettings.current,
         providers: options.providers,
@@ -545,6 +552,7 @@ export function createQuotaServerPlugin(
         unbindCredentialSource();
         liveSettings.dispose();
       };
+        nativeQuotaLifetime.abort();
     },
   });
 }

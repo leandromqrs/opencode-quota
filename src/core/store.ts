@@ -108,6 +108,7 @@ export type StoreProvider = {
   /** Overrides the source's minimum interval (0 for providers that only read local data). */
   minIntervalMs?: number;
   identity: () => Promise<ProviderIdentity>;
+  clearRowsOnError?: true;
   fetch: () => Promise<ProviderFetch>;
 };
 
@@ -657,7 +658,11 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
       gotRows && result.error
         ? (previous?.rows ?? []).filter((row) => !answered.has(row.login))
         : [];
-    const rows = replacesRows ? [...fresh, ...kept] : (previous?.rows ?? []);
+    const rows = replacesRows
+      ? [...fresh, ...kept]
+      : provider.clearRowsOnError
+        ? []
+        : (previous?.rows ?? []);
     const found = gotRows && previous ? findResets(previous, rows, nowMs) : [];
     const notices = joinNotices(
       (previous?.notices ?? []).filter((notice) => nowMs - notice.atMs <= RESET_NOTICE_KEEP_MS),
