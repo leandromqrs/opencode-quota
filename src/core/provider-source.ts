@@ -38,6 +38,8 @@ import type { SessionModel } from "./types.js";
 export type ProviderSourceHost = {
   /** OpenCode's provider list, for availability and model checks. */
   client: QuotaProviderContext["client"];
+  readQwenCloudQuota?: QuotaProviderContext["readQwenCloudQuota"];
+  readJunieQuota?: QuotaProviderContext["readJunieQuota"];
   /** The project folder quota is computed for. */
   workspaceRoot: string;
   /** The folder OpenCode runs the session in; see `QuotaProviderContext.locationDirectory`. */
@@ -82,6 +84,8 @@ export function providerContext(
   const { anthropic, cursor, opencode } = settings.providers;
   return {
     client: host.client,
+    readQwenCloudQuota: host.readQwenCloudQuota,
+    readJunieQuota: host.readJunieQuota,
     resolveRuntimeProviderIds: createRuntimeProviderIdResolver(host.client),
     workspaceRoot: host.workspaceRoot,
     locationDirectory: host.locationDirectory,
@@ -232,6 +236,9 @@ function storeProvider(
     id: provider.id,
     ...(definition ? { key: `${provider.id}:${definition.id}` } : {}),
     label: getQuotaProviderDisplayLabel(provider.id),
+    ...(provider.cachePolicy?.kind === "uncached" && provider.cachePolicy.clearRowsOnError
+      ? { clearRowsOnError: true }
+      : {}),
     // Cursor counts OpenCode's own history: cheap, and stale at once.
     ...(isLiveLocalUsageProviderId(provider.id) ? { minIntervalMs: 0 } : {}),
     ...(definition?.minIntervalMs === undefined ? {} : { minIntervalMs: definition.minIntervalMs }),

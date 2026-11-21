@@ -105,6 +105,20 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     rowKeys: ["personal.monthly", "personal.weekly", "personal.five_hour", "personal.*", "team.*"],
   },
   {
+    id: "qwencloud",
+    label: "QwenCloud Token Plan",
+    runtimeIds: ["qwencloud"],
+    synonyms: [],
+    rowKeys: ["personal.monthly"],
+  },
+  {
+    id: "jetbrains",
+    label: "Junie by Jetbrains",
+    runtimeIds: ["jetbrains"],
+    synonyms: ["junie"],
+    rowKeys: ["balance"],
+  },
+  {
     id: "google-gemini-cli",
     label: "Gemini CLI",
     runtimeIds: ["google-gemini-cli", "gemini-cli", "gemini", "opencode-gemini-auth", "google"],

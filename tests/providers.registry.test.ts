@@ -13,6 +13,8 @@ const EXPECTED_PROVIDER_ORDER = [
   "commandcode",
   "alibaba-coding-plan",
   "alibaba-token-plan",
+  "qwencloud",
+  "jetbrains",
   "google-gemini-cli",
   "google-agy",
   "zai",

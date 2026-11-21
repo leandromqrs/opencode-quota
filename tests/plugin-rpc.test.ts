@@ -175,6 +175,204 @@ describe("server quota RPC", () => {
     expect(existsSync(SNAPSHOT_FILE)).toBe(false);
   });
 
+  it("reads an uncached Junie value row and clears it on empty or failed RPC results", async () => {
+    const { junieProvider } = await import("../src/providers/junie.js");
+    const { JunieQuotaRpc } = await import("../src/lib/junie-quota-rpc.js");
+    mocks.getProviders.mockReturnValue([junieProvider]);
+    useSettings({ providers: { off: CONFIG_PROVIDER_IDS.filter((id) => id !== "jetbrains") } });
+    const junieQuota = vi
+      .fn()
+      .mockResolvedValueOnce({
+        label: "Junie by Jetbrains",
+        groups: [{ title: "Balance", value: "0.00 credits" }],
+      })
+      .mockResolvedValueOnce({ label: "Junie by Jetbrains", groups: [] })
+      .mockResolvedValueOnce({
+        label: "Junie by Jetbrains",
+        groups: [{ title: "Balance", value: "12.34 USD" }],
+      })
+      .mockRejectedValueOnce(new Error("RPC unavailable"))
+      .mockResolvedValueOnce({
+        label: "Junie by Jetbrains",
+        groups: [{ title: "Balance", value: "75% remaining" }],
+      });
+    const { ctx, call, cleanup } = await setupServer({ openCodeProviders: ["jetbrains"], junieQuota });
+    expect(junieQuota).not.toHaveBeenCalled();
+    const refresh = async () => {
+      const result = (await call("refresh", {
+        reason: "manual",
+        providerIds: ["jetbrains"],
+      })) as { snapshot: QuotaSnapshot };
+      return result.snapshot.providers.find((provider) => provider.providerId === "jetbrains")?.rows;
+    };
+    expect(await refresh()).toEqual([
+      expect.objectContaining({
+        id: "jetbrains.balance",
+        type: "balance",
+        amount: { decimal: "0.00", unit: { kind: "count", unit: "credit" } },
+      }),
+    ]);
+    expect(ctx.rpc).toHaveBeenCalledWith(JunieQuotaRpc);
+    expect(await refresh()).toEqual([]);
+    expect(await refresh()).toEqual([
+      expect.objectContaining({
+        amount: { decimal: "12.34", unit: { kind: "currency", code: "USD" } },
+      }),
+    ]);
+    expect(await refresh()).toEqual([]);
+    expect(await refresh()).toEqual([]);
+    await cleanup?.();
+    expect(await readFile(SNAPSHOT_FILE, "utf8").catch(() => "")).not.toContain("jetbrains.balance");
+  });
+
+  it("loads QwenCloud native quota into panel rows only on request without binding or persisting an OAuth identity", async () => {
+    const { qwenCloudProvider } = await import("../src/providers/qwencloud.js");
+    const { QwenCloudQuotaRpc } = await import("../src/lib/qwencloud-quota-rpc.js");
+    mocks.getProviders.mockReturnValue([qwenCloudProvider]);
+    useSettings({ providers: { off: CONFIG_PROVIDER_IDS.filter((id) => id !== "qwencloud") } });
+    const nativeQuota = vi.fn(async () => ({
+      state: "ready",
+      source: "alibaba-console-cli",
+      accountBinding: "unverified",
+      observedAt: "2026-11-11T00:00:00.000Z",
+      balances: [],
+      diagnostics: [],
+      personalWindows: [
+        {
+          period: "monthly",
+          scope: "personal",
+          usedFraction: 0.5715795927593333,
+          resetAt: "2026-11-15T00:00:00.000Z",
+        },
+      ],
+    }));
+    const { ctx, call, cleanup } = await setupServer({
+      openCodeProviders: ["qwencloud"],
+      nativeQuota,
+      sessionGet: vi.fn().mockResolvedValue({ model: { id: "qwen3", providerID: "qwencloud" } }),
+    });
+    expect(ctx.rpc).not.toHaveBeenCalled();
+    expect(nativeQuota).not.toHaveBeenCalled();
+    const result = (await call("refresh", { sessionID: "qwen-session" })) as {
+      snapshot: QuotaSnapshot;
+    };
+    expect(ctx.rpc).toHaveBeenCalledWith(QwenCloudQuotaRpc);
+    expect(nativeQuota).toHaveBeenCalledWith({}, { signal: expect.any(AbortSignal) });
+    expect(
+      result.snapshot.providers.find((provider) => provider.providerId === "qwencloud")?.rows,
+    ).toEqual([
+      expect.objectContaining({
+        id: "qwencloud.personal.monthly",
+        method: "local_cli",
+        account: "Alibaba console (account unverified)",
+        percentRemaining: 100 - 0.5715795927593333 * 100,
+        resetsAt: "2026-11-15T00:00:00.000Z",
+      }),
+    ]);
+    expect(mocks.reconcileDetectedProvidersInGlobalConfig).not.toHaveBeenCalled();
+    await cleanup?.();
+    const persisted = await readFile(SNAPSHOT_FILE, "utf8").catch(() => "");
+    expect(persisted).not.toContain("qwencloud.personal.monthly");
+  });
+
+  it("targets QwenCloud without a session or changing the user's selected model", async () => {
+    const { qwenCloudProvider } = await import("../src/providers/qwencloud.js");
+    const otherFetch = vi.fn().mockResolvedValue(copilotAnswer(81));
+    mocks.getProviders.mockReturnValue([
+      qwenCloudProvider,
+      provider("copilot", otherFetch, ACCOUNT_NEUTRAL),
+    ]);
+    useSettings({
+      providers: {
+        off: CONFIG_PROVIDER_IDS.filter((id) => !["qwencloud", "copilot"].includes(id)),
+      },
+    });
+    const nativeQuota = vi.fn(async () => ({
+      state: "ready",
+      source: "alibaba-console-cli",
+      accountBinding: "unverified",
+      observedAt: "2026-11-11T00:00:00.000Z",
+      balances: [],
+      diagnostics: [],
+      personalWindows: [{ period: "monthly", scope: "personal", usedFraction: 0 }],
+    }));
+    const sessionGet = vi.fn().mockResolvedValue({ model: { id: "gpt-5", providerID: "openai" } });
+    const { call } = await setupServer({
+      openCodeProviders: ["qwencloud", "copilot", "openai"],
+      nativeQuota,
+      sessionGet,
+    });
+    const result = (await call("refresh", { reason: "manual", providerIds: ["qwencloud"] })) as {
+      snapshot: QuotaSnapshot;
+    };
+    expect(nativeQuota).toHaveBeenCalledOnce();
+    expect(sessionGet).not.toHaveBeenCalled();
+    expect(otherFetch).not.toHaveBeenCalled();
+    expect(
+      result.snapshot.providers.find((provider) => provider.providerId === "qwencloud")?.rows[0]
+        ?.percentRemaining,
+    ).toBe(100);
+  });
+
+  it("does not relabel working QwenCloud quota as unconfigured when another model is selected", async () => {
+    const { qwenCloudProvider } = await import("../src/providers/qwencloud.js");
+    mocks.getProviders.mockReturnValue([qwenCloudProvider]);
+    useSettings({ providers: { off: CONFIG_PROVIDER_IDS.filter((id) => id !== "qwencloud") } });
+    const nativeQuota = vi.fn(async () => ({
+      state: "ready",
+      source: "alibaba-console-cli",
+      accountBinding: "unverified",
+      observedAt: "2026-11-11T00:00:00.000Z",
+      balances: [],
+      diagnostics: [],
+      personalWindows: [{ period: "monthly", scope: "personal", usedFraction: 0.5 }],
+    }));
+    const { call } = await setupServer({
+      openCodeProviders: ["qwencloud", "openai"],
+      nativeQuota,
+      sessionGet: vi.fn().mockResolvedValue({ model: { id: "gpt-5", providerID: "openai" } }),
+    });
+    const initial = (await call("refresh", { reason: "manual", providerIds: ["qwencloud"] })) as {
+      snapshot: QuotaSnapshot;
+    };
+    const prior = initial.snapshot.providers.find(
+      (provider) => provider.providerId === "qwencloud",
+    );
+    const result = (await call("refresh", { reason: "manual", sessionID: "openai-session" })) as {
+      snapshot: QuotaSnapshot;
+    };
+    const qwen = result.snapshot.providers.find((provider) => provider.providerId === "qwencloud");
+    expect(nativeQuota).toHaveBeenCalledOnce();
+    expect(qwen?.rows[0]?.percentRemaining).toBe(50);
+    expect(qwen?.error).toBeUndefined();
+    expect(qwen?.checkedAtMs).toBe(prior?.checkedAtMs);
+    expect(qwen?.okAtMs).toBe(prior?.okAtMs);
+  });
+
+  it("cancels an in-flight QwenCloud RPC before draining the store on plugin disposal", async () => {
+    const { qwenCloudProvider } = await import("../src/providers/qwencloud.js");
+    mocks.getProviders.mockReturnValue([qwenCloudProvider]);
+    useSettings({ providers: { off: CONFIG_PROVIDER_IDS.filter((id) => id !== "qwencloud") } });
+    let started!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let signal: AbortSignal | undefined;
+    const nativeQuota = vi.fn((_input: unknown, options: { signal: AbortSignal }) => {
+      signal = options.signal;
+      started();
+      return new Promise((_, reject) => {
+        signal!.addEventListener("abort", () => reject(new Error("PRIVATE")), { once: true });
+      });
+    });
+    const { call, cleanup } = await setupServer({ openCodeProviders: ["qwencloud"], nativeQuota });
+    const refresh = call("refresh", {});
+    await pending;
+    await cleanup?.();
+    expect(signal?.aborted).toBe(true);
+    expect(JSON.stringify(await refresh)).not.toContain("PRIVATE");
+  });
+
   // The clock is pinned on both sides of local midnight: the two messages came 60 s and 30 s
   // before it, so after midnight they are yesterday's.
   it.each([

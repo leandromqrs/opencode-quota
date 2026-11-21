@@ -29,6 +29,8 @@ export type AccountResult = {
  * answer that there is nothing to show: it clears the last rows without an error. */
 export type ProviderFetchResult = {
   attempted: boolean;
+  /** Selection excluded this check; retain the previous result rather than reporting missing setup. */
+  skipped?: true;
   accounts: AccountResult[];
   debug: DebugDetail[];
   empty?: true;

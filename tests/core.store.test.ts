@@ -126,6 +126,29 @@ describe("quota store", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  it("finishes a skipped refresh without replacing prior error, freshness, backoff or saved state", async () => {
+    const fake = fakeProvider();
+    const store = makeStore([fake.provider], 0);
+    await store.refresh({ reason: "manual" });
+    fake.fetch.mockResolvedValue({ rows: [], error: { code: "timeout" }, debug: [] });
+    const before = only(await store.refresh({ reason: "manual" }));
+    const saved = await readFile(file, "utf8");
+    const events: QuotaSnapshot[] = [];
+    const unsubscribe = store.subscribe((snapshot) => events.push(snapshot));
+    const pending = deferred<ProviderFetch>();
+    fake.fetch.mockReturnValue(pending.promise);
+    clock += MINUTE;
+    const refresh = store.refresh({ reason: "manual" });
+    await vi.waitFor(() => expect(fake.fetch).toHaveBeenCalledTimes(3));
+    expect(only(await store.snapshot({ refresh: false })).refreshing).toBe(true);
+    events.length = 0;
+    pending.resolve({ rows: [], skipped: true, debug: [] });
+    expect(only(await refresh)).toEqual(before);
+    expect(events.at(-1)?.providers[0]).toEqual(before);
+    expect(await readFile(file, "utf8")).toBe(saved);
+    unsubscribe();
+  });
+
   it("answers at once from the snapshot file after a restart", async () => {
     const first = fakeProvider();
     await makeStore([first.provider]).refresh({ reason: "manual" });

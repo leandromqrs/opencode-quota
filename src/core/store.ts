@@ -87,6 +87,7 @@ export type ProviderFetch = {
   error?: QuotaError;
   /** The provider answered that it has nothing to show: the rows are cleared, with no error. */
   empty?: true;
+  skipped?: true;
   debug: DebugDetail[];
   /** Writes this check's part of the export file from its rows as shown and its error. */
   buildExportPart?: (check: CheckForExport) => QuotaExportProvider;
@@ -122,6 +123,7 @@ export type StoreProvider = {
   label: string;
   /** Overrides the source's minimum, including turns (0 for providers reading local data). */
   minIntervalMs?: number;
+  clearRowsOnError?: true;
   identity: () => Promise<ProviderIdentity>;
   fetch: () => Promise<ProviderFetch>;
   /** Rebuilds export metadata from a saved check without fetching or recording a new check. */
@@ -779,7 +781,11 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
       check.state === "partial"
         ? (previous?.rows ?? []).filter((row) => !answered.has(row.login))
         : [];
-    const rows = replacesRows ? [...fresh, ...kept] : (previous?.rows ?? []);
+    const rows = replacesRows
+      ? [...fresh, ...kept]
+      : provider.clearRowsOnError
+        ? []
+        : (previous?.rows ?? []);
     const found = fresh.length > 0 && previous ? findResets(previous, rows, nowMs) : [];
     const notices = joinNotices(
       (previous?.notices ?? []).filter((notice) => nowMs - notice.atMs <= RESET_NOTICE_KEEP_MS),
@@ -861,6 +867,13 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
         : minIntervalMs;
     if (!isDue(last, reason, intervalMs, now(), provider.minIntervalMs)) return false;
     const result = await fetchProvider(provider, where.key);
+    if (result.skipped) {
+      if (!isCurrent(operation)) return false;
+      for (const view of views.values()) {
+        if (view.keys.get(providerKey)?.key === where.key) emit(view);
+      }
+      return false;
+    }
     // A fetch is stored only under the account it read. A login change (new generation) or
     // another account now (same generation) drops its answer.
     if (!isCurrent(operation)) return true;

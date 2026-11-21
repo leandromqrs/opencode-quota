@@ -19,6 +19,7 @@ import { zaiProvider, zhipuProvider } from "./glm-coding-plan.js";
 import { googleAgyProvider } from "./google-agy.js";
 import { googleGeminiCliProvider } from "./google-gemini-cli.js";
 import { kimiCodePlanCnProvider, kimiCodePlanGlobalProvider } from "./kimi-code.js";
+import { junieProvider } from "./junie.js";
 import { xiaomiProvider } from "./mimo.js";
 import {
   minimaxChinaCodingPlanProvider,
@@ -30,6 +31,7 @@ import { opencodeGoProvider } from "./opencode-go.js";
 import { opencodeZenProvider } from "./opencode-zen.js";
 import { openRouterProvider } from "./openrouter.js";
 import { quotaProvidersProvider } from "./quota-providers.js";
+import { qwenCloudProvider } from "./qwencloud.js";
 import { xaiProvider } from "./xai.js";
 
 const PROVIDERS_BY_ID = {
@@ -42,6 +44,8 @@ const PROVIDERS_BY_ID = {
   commandcode: commandCodeProvider,
   "alibaba-coding-plan": alibabaCodingPlanProvider,
   "alibaba-token-plan": alibabaTokenPlanProvider,
+  qwencloud: qwenCloudProvider,
+  jetbrains: junieProvider,
   "google-gemini-cli": googleGeminiCliProvider,
   "google-agy": googleAgyProvider,
   zai: zaiProvider,

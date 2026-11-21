@@ -133,6 +133,7 @@ export function rowsFromProviderResult(
   const [firstError] = errors;
   if (firstError) return { rows, ...logins, error: firstError.error, debug };
   if (!result.attempted && rows.length === 0) {
+    if (result.skipped) return { rows: [], skipped: true, debug };
     return { rows: [], error: { code: "not_configured" }, debug };
   }
   if (result.empty && rows.length === 0) return { rows: [], empty: true, debug };
