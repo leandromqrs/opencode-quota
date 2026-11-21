@@ -4,6 +4,8 @@ import { modelProviderMatchesRuntimeId } from "../lib/provider-model-matching.js
 import { failedAccount, type ProviderFetchResult } from "./contract.js";
 
 const ACCOUNT = "Alibaba console (account unverified)";
+const MANAGEMENT_ACCOUNT = "QwenCloud management account";
+const INDIVIDUAL_API = "qwencloud-individual-api";
 const CODES = [
   "cancelled",
   "timeout",
@@ -18,11 +20,19 @@ const CODES = [
   "cli-failed",
 ] as const;
 type DiagnosticCode = (typeof CODES)[number];
+const API_CODES = [
+  "invalid-credentials", "session-expired", "credentials-unavailable", "account-changed",
+  "cancelled", "timeout", "unauthorized", "rate-limited", "http-error", "network-error",
+  "body-too-large", "invalid-response", "business-error", "invalid-amount", "invalid-reset",
+  "missing-balance",
+] as const;
+type ApiCode = (typeof API_CODES)[number];
 type PersonalWindow = { usedFraction: number; resetAt?: string };
 type NativeQuota = {
-  state: "ready" | "unknown" | "error";
+  source: "alibaba-console-cli" | typeof INDIVIDUAL_API;
+  state: "ready" | "unknown" | "error" | "disconnected";
   windows: PersonalWindow[];
-  codes: DiagnosticCode[];
+  codes: (DiagnosticCode | ApiCode)[];
 };
 
 function record(value: unknown, keys: string[]): Record<string, unknown> {
@@ -52,9 +62,10 @@ function decodeQuota(value: unknown): NativeQuota {
     "diagnostics",
     "personalWindows",
   ]);
+  const api = data.source === INDIVIDUAL_API;
   if (
-    data.source !== "alibaba-console-cli" ||
-    data.accountBinding !== "unverified" ||
+    (!api && data.source !== "alibaba-console-cli") ||
+    (api ? "accountBinding" in data : data.accountBinding !== "unverified") ||
     !isTime(data.observedAt) ||
     !Array.isArray(data.balances) ||
     data.balances.length !== 0 ||
@@ -62,16 +73,20 @@ function decodeQuota(value: unknown): NativeQuota {
     data.diagnostics.length > 32
   )
     throw new Error("Invalid native quota response");
-  if (data.state !== "ready" && data.state !== "unknown" && data.state !== "error")
+  if (data.state !== "ready" && data.state !== "unknown" && data.state !== "error" &&
+      !(api && data.state === "disconnected"))
     throw new Error("Invalid native quota state");
   const codes = data.diagnostics.map((raw) => {
     const diagnostic = record(raw, ["action", "code"]);
     if (
-      diagnostic.action !== "AlibabaTokenPlanUsage" ||
-      !CODES.includes(diagnostic.code as DiagnosticCode)
+      api
+        ? !["quota", "GenerateCLIAccessToken", "IndividualTokenPlanUsage"].includes(String(diagnostic.action)) ||
+          !API_CODES.includes(diagnostic.code as ApiCode)
+        : diagnostic.action !== "AlibabaTokenPlanUsage" ||
+          !CODES.includes(diagnostic.code as DiagnosticCode)
     )
       throw new Error("Invalid native quota diagnostic");
-    return diagnostic.code as DiagnosticCode;
+    return diagnostic.code as DiagnosticCode | ApiCode;
   });
   if (
     "personalWindows" in data &&
@@ -98,14 +113,33 @@ function decodeQuota(value: unknown): NativeQuota {
   if (
     data.state === "ready"
       ? windows.length !== 1 || codes.length !== 0
-      : windows.length !== 0 || (data.state === "error" && codes.length === 0)
+      : windows.length !== 0 || (data.state === "error" && codes.length === 0) ||
+        (data.state === "disconnected" && codes.length !== 0)
   )
     throw new Error("Inconsistent native quota state");
-  return { state: data.state, windows, codes };
+  return { source: api ? INDIVIDUAL_API : "alibaba-console-cli", state: data.state, windows, codes };
 }
 
-function failure(code: QuotaErrorCode, message: string): ProviderFetchResult {
-  return { attempted: true, accounts: [failedAccount(ACCOUNT, message, { code })], debug: [] };
+function failure(code: QuotaErrorCode, message: string, account = ACCOUNT): ProviderFetchResult {
+  return { attempted: true, accounts: [failedAccount(account, message, { code })], debug: [] };
+}
+
+function individualFailure(quota: NativeQuota): ProviderFetchResult {
+  const fail = (code: QuotaErrorCode, message: string) => failure(code, message, MANAGEMENT_ACCOUNT);
+  if (quota.state === "disconnected") return fail("not_configured", "Connect QwenCloud management OAuth in OpenCode.");
+  if (quota.state === "unknown") return fail("no_data", "QwenCloud returned no monthly Individual Token Plan data.");
+  switch (quota.codes[0]) {
+    case "session-expired":
+    case "unauthorized": return fail("login_expired", "Sign in to QwenCloud in OpenCode again.");
+    case "invalid-credentials":
+    case "credentials-unavailable": return fail("not_configured", "QwenCloud management credentials are unavailable.");
+    case "timeout": return fail("timeout", "QwenCloud quota request timed out.");
+    case "invalid-response":
+    case "invalid-amount":
+    case "invalid-reset":
+    case "body-too-large": return fail("bad_response", "Invalid QwenCloud Individual quota response.");
+    default: return fail("provider_error", "QwenCloud Individual quota read failed.");
+  }
 }
 
 function diagnosticFailure(code: DiagnosticCode | undefined): ProviderFetchResult {
@@ -173,21 +207,22 @@ export const qwenCloudProvider: QuotaProvider = {
       } catch {
         return failure("bad_response", "Invalid QwenCloud native quota response.");
       }
+      const api = quota.source === INDIVIDUAL_API;
       if (quota.state !== "ready")
-        return quota.state === "unknown"
+        return api ? individualFailure(quota) : quota.state === "unknown"
           ? failure("no_data", "Alibaba console returned no personal quota data.")
-          : diagnosticFailure(quota.codes[0]);
+          : diagnosticFailure(quota.codes[0] as DiagnosticCode | undefined);
       return {
         attempted: true,
         accounts: [
           {
-            name: ACCOUNT,
+            name: api ? MANAGEMENT_ACCOUNT : ACCOUNT,
             errors: [],
             rows: quota.windows.map((window) => ({
               key: "personal.monthly",
               label: "Monthly",
               type: "quota",
-              method: "local_cli",
+              method: api ? "remote_api" : "local_cli",
               authority: "provider_reported",
               prominence: "primary",
               window: "month",
@@ -197,8 +232,8 @@ export const qwenCloudProvider: QuotaProvider = {
           },
         ],
         debug: [
-          { key: "source", value: "alibaba-console-cli" },
-          { key: "account_binding", value: "unverified" },
+          { key: "source", value: quota.source },
+          ...(api ? [] : [{ key: "account_binding", value: "unverified" }]),
         ],
       };
     } catch {

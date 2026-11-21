@@ -97,6 +97,18 @@ describe("QwenCloud native quota", () => {
     expect(rowsFromProviderResult("qwencloud", missing).error).toEqual({ code: "not_configured" });
   });
 
+  it("shows Individual API quota as remote data and keeps the monthly row key", async () => {
+    const { accountBinding: _binding, ...value } = reply(0.25);
+    const result = await qwenCloudProvider.fetch(
+      context(vi.fn(async () => ({ ...value, source: "qwencloud-individual-api" }))),
+    );
+    expect(result.accounts[0]).toMatchObject({
+      name: "QwenCloud management account",
+      rows: [{ key: "personal.monthly", method: "remote_api", percentRemaining: 75, resetsAt: resetAt }],
+    });
+    expect(result.debug).toEqual([{ key: "source", value: "qwencloud-individual-api" }]);
+  });
+
   it("rejects forged provenance, team balances, malformed windows and state combinations", async () => {
     const value = reply();
     for (const invalid of [
