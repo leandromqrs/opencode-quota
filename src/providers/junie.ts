@@ -1,6 +1,7 @@
 import type { Amount, QuotaErrorCode } from "../core/types.js";
 import type { QuotaProvider } from "../lib/entries.js";
 import { modelProviderMatchesRuntimeId } from "../lib/provider-model-matching.js";
+import { readQuotaRpc } from "../lib/read-quota-rpc.js";
 import { failedAccount, type ProviderFetchResult } from "./contract.js";
 
 const ID = "jetbrains";
@@ -20,15 +21,23 @@ function decodeBalance(value: unknown): Amount | undefined {
   )
     throw new Error("Invalid Junie quota snapshot");
   if (value.groups.length === 0) return undefined;
-  const row = value.groups[0];
-  const match =
-    row?.title === "Balance" && typeof row.value === "string" && row.value.length <= 48
-      ? BALANCE.exec(row.value)
-      : null;
+  const row: unknown = value.groups[0];
+  if (
+    !row ||
+    typeof row !== "object" ||
+    !("title" in row) ||
+    row.title !== "Balance" ||
+    !("value" in row) ||
+    typeof row.value !== "string" ||
+    row.value.length > 48
+  )
+    throw new Error("Invalid Junie balance row");
+  const match = BALANCE.exec(row.value);
   if (!match || match[0] !== row.value) throw new Error("Invalid Junie balance row");
   return {
     decimal: `${match[1]}${match[2]}`,
-    unit: match[3] === "USD" ? { kind: "currency", code: "USD" } : { kind: "count", unit: "credit" },
+    unit:
+      match[3] === "USD" ? { kind: "currency", code: "USD" } : { kind: "count", unit: "credit" },
   };
 }
 
@@ -51,51 +60,40 @@ export const junieProvider: QuotaProvider = {
   async fetch(ctx) {
     const read = ctx.readJunieQuota;
     if (!read || !(await junieProvider.isAvailable(ctx))) return NO_ATTEMPT;
-    const controller = new AbortController();
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    try {
-      const expired = new Promise<never>((_, reject) => {
-        timeout = setTimeout(() => {
-          controller.abort();
-          reject(new Error("Quota timeout"));
-        }, ctx.config.requestTimeoutMs ?? 12_000);
-      });
-      const value = await Promise.race([read(controller.signal), expired]);
-      let amount: Amount | undefined;
-      try {
-        amount = decodeBalance(value);
-      } catch {
-        return failure("bad_response", "Invalid Junie native quota response.");
-      }
-      if (!amount) return failure("no_data", "Junie did not report a balance.");
-      return {
-        attempted: true,
-        accounts: [
-          {
-            name: LABEL,
-            errors: [],
-            rows: [
-              {
-                key: "balance",
-                label: "Balance",
-                type: "balance",
-                method: "remote_api",
-                authority: "provider_reported",
-                prominence: "primary",
-                amount,
-              },
-            ],
-          },
-        ],
-        debug: [],
-      };
-    } catch {
-      return controller.signal.aborted
-        ? failure("timeout", "Junie quota request timed out.")
-        : failure("provider_error", "Junie native quota RPC unavailable.");
-    } finally {
-      clearTimeout(timeout);
-      controller.abort();
+    const response = await readQuotaRpc(read, ctx.config.requestTimeoutMs);
+    switch (response.kind) {
+      case "timeout":
+        return failure("timeout", "Junie quota request timed out.");
+      case "unavailable":
+        return failure("provider_error", "Junie native quota RPC unavailable.");
     }
+    let amount: Amount | undefined;
+    try {
+      amount = decodeBalance(response.value);
+    } catch {
+      return failure("bad_response", "Invalid Junie native quota response.");
+    }
+    if (!amount) return failure("no_data", "Junie did not report a balance.");
+    return {
+      attempted: true,
+      accounts: [
+        {
+          name: LABEL,
+          errors: [],
+          rows: [
+            {
+              key: "balance",
+              label: "Balance",
+              type: "balance",
+              method: "remote_api",
+              authority: "provider_reported",
+              prominence: "primary",
+              amount,
+            },
+          ],
+        },
+      ],
+      debug: [],
+    };
   },
 };
