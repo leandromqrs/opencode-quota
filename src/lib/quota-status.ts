@@ -1143,6 +1143,7 @@ const DEBUG_DETAILS = {
   },
   "alibaba-coding-plan": ALIBABA_CODING_PLAN_DETAILS,
   "alibaba-token-plan": ALIBABA_TOKEN_PLAN_DETAILS,
+  qwencloud: { source: oneOf("alibaba-console-cli"), account_binding: oneOf("unverified") },
   jetbrains: {},
   "google-gemini-cli": GOOGLE_DETAILS,
   "google-agy": GOOGLE_DETAILS,

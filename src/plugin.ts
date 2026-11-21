@@ -50,6 +50,7 @@ import {
 } from "./lib/quota-report-message.js";
 import { resolveQuotaResetRetryDelayMs } from "./lib/quota-retry-wait.js";
 import type { StatusOrigin } from "./lib/quota-status.js";
+import { QwenCloudQuotaRpc } from "./lib/qwencloud-quota-rpc.js";
 import { JunieQuotaRpc } from "./lib/junie-quota-rpc.js";
 import { QuotaRpc } from "./rpc.js";
 import {
@@ -115,8 +116,8 @@ export function createQuotaServerPlugin(
     id: "@slkiser/opencode-quota.server",
     async setup(ctx) {
       const locationDirectory = ctx.location.directory;
-      const projectDir = findGitWorktreeRoot(locationDirectory) ?? locationDirectory;
       const nativeQuotaLifetime = new AbortController();
+      const projectDir = findGitWorktreeRoot(locationDirectory) ?? locationDirectory;
       // The providers ask OpenCode which providers it has through this small client.
       const client = {
         config: {
@@ -175,12 +176,19 @@ export function createQuotaServerPlugin(
       // Building it reads nothing; the first snapshot or refresh call loads the file.
       const sourceHost: ProviderSourceHost = {
         client,
-        workspaceRoot: projectDir,
         readJunieQuota: (signal) =>
           ctx.rpc(JunieQuotaRpc).status(
             {},
             { signal: AbortSignal.any([signal, nativeQuotaLifetime.signal]) },
           ),
+        readQwenCloudQuota: (signal) =>
+          ctx.rpc(QwenCloudQuotaRpc).quota(
+            {},
+            {
+              signal: AbortSignal.any([signal, nativeQuotaLifetime.signal]),
+            },
+          ),
+        workspaceRoot: projectDir,
         locationDirectory,
         settings: liveSettings.current,
         providers: options.providers,
@@ -544,6 +552,7 @@ export function createQuotaServerPlugin(
       // Running fetches still read logins and prices, so the store is drained before the
       // bindings go.
       return async () => {
+        nativeQuotaLifetime.abort();
         credentialEvents.abort();
         settingsWatch.close();
         unsubscribeStore();
@@ -552,7 +561,6 @@ export function createQuotaServerPlugin(
         unbindCredentialSource();
         liveSettings.dispose();
       };
-        nativeQuotaLifetime.abort();
     },
   });
 }

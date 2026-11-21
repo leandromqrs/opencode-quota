@@ -33,6 +33,7 @@ const PROVIDER_FILES: Readonly<Record<string, readonly string[]>> = {
   "opencode-zen.ts": ["opencode"],
   "openrouter.ts": ["openrouter"],
   "quota-providers.ts": ["quota-providers"],
+  "qwencloud.ts": ["qwencloud"],
   "junie.ts": ["jetbrains"],
   "xai.ts": ["xai"],
 };

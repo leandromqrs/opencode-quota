@@ -36,6 +36,7 @@ import type { SessionModel } from "./types.js";
 export type ProviderSourceHost = {
   /** OpenCode's provider list, for availability and model checks. */
   client: QuotaProviderContext["client"];
+  readQwenCloudQuota?: QuotaProviderContext["readQwenCloudQuota"];
   readJunieQuota?: QuotaProviderContext["readJunieQuota"];
   /** The project folder quota is computed for. */
   workspaceRoot: string;
@@ -84,8 +85,9 @@ export function providerContext(
   const { anthropic, cursor, opencode } = settings.providers;
   return {
     client: host.client,
-    resolveRuntimeProviderIds: createRuntimeProviderIdResolver(host.client),
+    readQwenCloudQuota: host.readQwenCloudQuota,
     readJunieQuota: host.readJunieQuota,
+    resolveRuntimeProviderIds: createRuntimeProviderIdResolver(host.client),
     workspaceRoot: host.workspaceRoot,
     locationDirectory: host.locationDirectory,
     config: {
@@ -222,11 +224,11 @@ function storeProvider(
   return {
     id: provider.id,
     label: getQuotaProviderDisplayLabel(provider.id),
-    // Cursor counts OpenCode's own history: cheap, and stale at once.
-    ...(isLiveLocalUsageProviderId(provider.id) ? { minIntervalMs: 0 } : {}),
     ...(provider.cachePolicy?.kind === "uncached" && provider.cachePolicy.clearRowsOnError
       ? { clearRowsOnError: true }
       : {}),
+    // Cursor counts OpenCode's own history: cheap, and stale at once.
+    ...(isLiveLocalUsageProviderId(provider.id) ? { minIntervalMs: 0 } : {}),
     async identity(): Promise<ProviderIdentity> {
       const account = await accountIdentity(provider, ctx, await cacheContextFor(provider, ctx));
       if (account === null) {

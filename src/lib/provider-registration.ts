@@ -87,6 +87,13 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     rowKeys: ["personal.monthly", "personal.weekly", "personal.five_hour", "personal.*", "team.*"],
   },
   {
+    id: "qwencloud",
+    label: "QwenCloud Token Plan",
+    runtimeIds: ["qwencloud"],
+    synonyms: [],
+    rowKeys: ["personal.monthly"],
+  },
+  {
     id: "jetbrains",
     label: "Junie by Jetbrains",
     runtimeIds: ["jetbrains"],

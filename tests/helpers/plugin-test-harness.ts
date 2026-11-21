@@ -68,12 +68,14 @@ export function createServerContext({
   openCodeProviders = [],
   sessionGet = vi.fn().mockResolvedValue({}),
   events = { async *[Symbol.asyncIterator]() {} },
+  nativeQuota = vi.fn().mockRejectedValue(new Error("RPC unavailable")),
   junieQuota = vi.fn().mockRejectedValue(new Error("RPC unavailable")),
 }: {
   directory?: string;
   openCodeProviders?: Array<string | { id: string; name: string }>;
   sessionGet?: MockFunction;
   events?: AsyncIterable<{ type: string }>;
+  nativeQuota?: MockFunction;
   junieQuota?: MockFunction;
 } = {}) {
   const tools: ServerTool[] = [];
@@ -118,7 +120,7 @@ export function createServerContext({
       }),
     },
     rpc: Object.assign(
-      vi.fn((_definition: unknown) => ({ status: junieQuota })),
+      vi.fn((_definition: unknown) => ({ quota: nativeQuota, status: junieQuota })),
       {
         register: vi.fn(async () => ({ dispose: async () => {}, events: { emit } })),
       },

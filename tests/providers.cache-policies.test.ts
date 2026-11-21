@@ -46,7 +46,7 @@ describe("provider cache policies", () => {
       .filter(([, policy]) => policy.kind === "uncached")
       .map(([id]) => id)
       .sort();
-    expect(uncached).toEqual(["cursor", "jetbrains"]);
+    expect(uncached).toEqual(["cursor", "jetbrains", "qwencloud"]);
   });
 
   it("keeps Kimi identities isolated through the actual regional policy resolvers", async () => {

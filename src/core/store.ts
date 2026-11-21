@@ -82,6 +82,7 @@ export type ProviderFetch = {
   error?: QuotaError;
   /** The provider answered that it has nothing to show: the rows are cleared, with no error. */
   empty?: true;
+  skipped?: true;
   debug: DebugDetail[];
   /** Writes this check's part of the export file from its rows as shown and its error. */
   buildExportPart?: (check: CheckForExport) => QuotaExportProvider;
@@ -107,8 +108,8 @@ export type StoreProvider = {
   label: string;
   /** Overrides the source's minimum interval (0 for providers that only read local data). */
   minIntervalMs?: number;
-  identity: () => Promise<ProviderIdentity>;
   clearRowsOnError?: true;
+  identity: () => Promise<ProviderIdentity>;
   fetch: () => Promise<ProviderFetch>;
 };
 
@@ -726,6 +727,13 @@ export function createQuotaStore(deps: QuotaStoreDeps): QuotaStore {
     const last = lastCheckOf(entries.get(where.key)) ?? fileLastCheck(provider.id, where);
     if (!isDue(last, reason, minIntervalMs, now())) return;
     const result = await fetchProvider(provider, where.key);
+    if (result.skipped) {
+      if (!isCurrent(operation)) return;
+      for (const view of views.values()) {
+        if (view.keys.get(provider.id)?.key === where.key) emit(view);
+      }
+      return;
+    }
     // A fetch is stored only under the account it read. A login change (new generation) or
     // another account now (same generation) drops its answer.
     if (!isCurrent(operation)) return;

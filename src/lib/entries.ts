@@ -5,6 +5,7 @@
 import type { ProviderFetchResult } from "../providers/contract.js";
 import type { CursorQuotaPlan } from "./cursor-pricing.js";
 import type { QuotaProviderDefinition } from "./quota-providers.js";
+import type { QwenCloudQuotaReader } from "./qwencloud-quota-rpc.js";
 import type { JunieQuotaReader } from "./junie-quota-rpc.js";
 import type { ResolvedAuthIdentity } from "./resolved-auth-identity.js";
 import type { RuntimeProviderIdResolver } from "./runtime-provider-ids.js";
@@ -28,6 +29,7 @@ export interface QuotaProviderContext {
     };
   };
   resolveRuntimeProviderIds: RuntimeProviderIdResolver;
+  readQwenCloudQuota?: QwenCloudQuotaReader;
   readJunieQuota?: JunieQuotaReader;
   /**
    * The project folder quota is computed for: the git root of the OpenCode location, or the
